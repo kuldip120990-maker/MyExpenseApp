@@ -3,7 +3,6 @@ from kivymd.uix.screen import MDScreen
 from kivymd.uix.screenmanager import MDScreenManager
 from kivymd.uix.pickers import MDDatePicker
 from kivymd.uix.menu import MDDropdownMenu
-# --- Imports fixed ---
 from kivymd.uix.list import TwoLineAvatarIconListItem, OneLineIconListItem, IconLeftWidget, IconRightWidget
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.button import MDFlatButton, MDRaisedButton
@@ -13,7 +12,8 @@ from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.label import MDLabel
 from kivy.lang import Builder
 from kivy.core.window import Window
-from kivy.properties import StringProperty, NumericProperty
+# --- FIX 1: Added ObjectProperty import ---
+from kivy.properties import StringProperty, NumericProperty, ObjectProperty
 from kivy.metrics import dp
 from datetime import datetime
 import sqlite3
@@ -123,7 +123,7 @@ MDScreen:
                                 padding: dp(15)
                                 spacing: dp(10)
                                 size_hint_y: None
-                                height: dp(160)
+                                height: dp(180) 
                                 elevation: 2
                                 radius: [15]
                                 
@@ -139,9 +139,15 @@ MDScreen:
                                     font_style: "H4"
                                     theme_text_color: "Primary"
 
+                                # --- FIX 2: Added Vertical Space ---
+                                Widget:
+                                    size_hint_y: None
+                                    height: dp(10)
+
+                                # --- FIX 3: Centered Buttons ---
                                 MDBoxLayout:
-                                    spacing: dp(10)
-                                    adaptive_height: True
+                                    spacing: dp(15)
+                                    adaptive_size: True
                                     pos_hint: {"center_x": .5}
                                     
                                     MDRaisedButton:
@@ -273,8 +279,10 @@ MDScreen:
                 screen_manager: screen_manager
 '''
 
+# --- FIX 4: Added ObjectProperty to prevent Sidebar Crash ---
 class ContentNavigationDrawer(MDBoxLayout):
-    pass
+    nav_drawer = ObjectProperty()
+    screen_manager = ObjectProperty()
 
 class ExpenseListItem(TwoLineAvatarIconListItem):
     id_val = NumericProperty(0)
@@ -296,12 +304,12 @@ class ExpenseApp(MDApp):
         # --- ERROR CATCHING SETUP ---
         try:
             # Database setup
-            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v4.db')
+            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v5.db')
             self.conn = sqlite3.connect(self.db_name)
             self.cursor = self.conn.cursor()
             self.create_tables()
             
-            self.current_master_table = "" # FIX IS HERE
+            self.current_master_table = "" 
 
             return Builder.load_string(KV)
         except Exception as e:
