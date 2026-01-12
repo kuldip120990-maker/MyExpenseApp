@@ -11,7 +11,7 @@ from datetime import datetime
 import sqlite3
 import os
 
-# --- KV LAYOUT (The User Interface Design) ---
+# --- KV LAYOUT ---
 KV = '''
 MDScreenManager:
     HomeScreen:
@@ -92,13 +92,20 @@ MDScreenManager:
                 id: history_list
 '''
 
+# --- આ બે ક્લાસ ખૂટતા હતા, જે મેં ઉમેર્યા છે ---
+class HomeScreen(MDScreen):
+    pass
+
+class HistoryScreen(MDScreen):
+    pass
+# ---------------------------------------------
+
 class ExpenseApp(MDApp):
     def build(self):
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
         
-        # --- DATABASE SETUP (Same logic as your old app) ---
-        # On Android, we must store the DB in the user data directory
+        # database path fix for android
         self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile.db')
         self.conn = sqlite3.connect(self.db_name)
         self.cursor = self.conn.cursor()
@@ -107,20 +114,19 @@ class ExpenseApp(MDApp):
         return Builder.load_string(KV)
 
     def on_start(self):
-        # Initialize default categories if empty
         if not self.get_master_data('categories'):
             for n in ['Travel', 'Food', 'Office Supplies', 'Salary']:
                 self.cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (n,))
             self.conn.commit()
             
-        # Initialize simple wallet balance if 0
         self.update_balance_display()
 
-        # Set today's date
         today = datetime.now()
-        self.root.get_screen("home").ids.date_field.text = today.strftime("%Y-%m-%d")
+        # Error fix: check if screen exists before accessing ids
+        screen = self.root.get_screen("home")
+        if screen:
+            screen.ids.date_field.text = today.strftime("%Y-%m-%d")
 
-        # Setup Category Dropdown
         categories = self.get_master_data('categories')
         menu_items = [
             {
@@ -136,7 +142,6 @@ class ExpenseApp(MDApp):
         )
 
     def create_tables(self):
-        # Kept your exact schema to maintain logic consistency
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS payees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
@@ -171,11 +176,9 @@ class ExpenseApp(MDApp):
         self.root.get_screen("home").ids.date_field.text = str(value)
 
     def update_balance_display(self):
-        # Simple calculation of total expenses for this demo
         self.cursor.execute("SELECT SUM(amount) FROM expenses")
         res = self.cursor.fetchone()[0]
         total_exp = res if res else 0.0
-        # Assuming a dummy wallet start of 50,000 for demo
         balance = 50000.0 - total_exp
         self.root.get_screen("home").ids.balance_label.text = f"Wallet Balance: ₹{balance:,.2f}"
 
@@ -193,7 +196,6 @@ class ExpenseApp(MDApp):
 
         try:
             amt_float = float(amount)
-            # Insert logic (Simplified for mobile)
             self.cursor.execute(
                 "INSERT INTO expenses (date, company, payee, category, amount) VALUES (?,?,?,?,?)",
                 (date, company, payee, category, amt_float)
@@ -203,7 +205,6 @@ class ExpenseApp(MDApp):
             Snackbar(text="Expense Saved Successfully!").open()
             self.update_balance_display()
             
-            # Clear fields
             screen.ids.amount_field.text = ""
             screen.ids.payee_field.text = ""
             
@@ -223,7 +224,6 @@ class ExpenseApp(MDApp):
         rows = self.cursor.fetchall()
         
         for row in rows:
-            # row: 0=date, 1=cat, 2=amt, 3=payee
             history_list.add_widget(
                 TwoLineListItem(
                     text=f"₹{row[2]:,.2f} - {row[1]}",
