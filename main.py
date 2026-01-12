@@ -3,12 +3,14 @@ from kivymd.uix.screen import MDScreen
 from kivymd.uix.screenmanager import MDScreenManager
 from kivymd.uix.pickers import MDDatePicker
 from kivymd.uix.menu import MDDropdownMenu
-from kivymd.uix.list import TwoLineAvatarIconListItem, OneLineIconListItem, IRightBodyTouch
+# --- Imports fixed ---
+from kivymd.uix.list import TwoLineAvatarIconListItem, OneLineIconListItem, IconLeftWidget, IconRightWidget
 from kivymd.uix.dialog import MDDialog
 from kivymd.uix.button import MDFlatButton, MDRaisedButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.snackbar import Snackbar
+from kivymd.uix.label import MDLabel
 from kivy.lang import Builder
 from kivy.core.window import Window
 from kivy.properties import StringProperty, NumericProperty
@@ -16,6 +18,7 @@ from kivy.metrics import dp
 from datetime import datetime
 import sqlite3
 import os
+import traceback
 
 # --- KV LAYOUT ---
 KV = '''
@@ -31,7 +34,7 @@ KV = '''
                     icon: "view-dashboard"
 
             OneLineIconListItem:
-                text: "Reports & Vouchers"
+                text: "Reports"
                 on_press:
                     root.nav_drawer.set_state("close")
                     app.load_report_data()
@@ -225,7 +228,7 @@ MDScreen:
                             height: self.minimum_height
                             orientation: 'vertical'
 
-            # --- MASTER DATA SCREEN (Reusable) ---
+            # --- MASTER DATA SCREEN ---
             MDScreen:
                 name: "master_data"
                 MDBoxLayout:
@@ -290,71 +293,59 @@ class ExpenseApp(MDApp):
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
         
-        # Database setup
-        self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v2.db')
-        self.conn = sqlite3.connect(self.db_name)
-        self.cursor = self.conn.cursor()
-        self.create_tables()
-        self.check_and_migrate_db()
-        
-        self.current_master_table = "" # Tracks which master page is open
-        self.dialog = None
-        
-        return Builder.load_string(KV)
+        # --- ERROR CATCHING SETUP ---
+        try:
+            # Database setup
+            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v4.db')
+            self.conn = sqlite3.connect(self.db_name)
+            self.cursor = self.conn.cursor()
+            self.create_tables()
+            
+            self.current_master_table = "" # FIX IS HERE
+
+            return Builder.load_string(KV)
+        except Exception as e:
+            error_msg = traceback.format_exc()
+            return MDLabel(text=f"CRASH ERROR:\n{error_msg}", halign="center")
 
     def on_start(self):
-        # Default Data if empty
-        if not self.get_master_list('categories'):
-            for n in ['Travel', 'Food', 'Office', 'Salary']:
-                self.cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (n,))
-            self.conn.commit()
-            
-        self.update_balance_display()
-        today = datetime.now()
-        screen = self.root.ids.screen_manager.get_screen("dashboard")
-        screen.ids.date_field.text = today.strftime("%Y-%m-%d")
+        try:
+            # Default Data if empty
+            if not self.get_master_list('categories'):
+                for n in ['Travel', 'Food', 'Office', 'Salary']:
+                    self.cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (n,))
+                self.conn.commit()
+                
+            self.update_balance_display()
+            today = datetime.now()
+            if self.root:
+                screen = self.root.ids.screen_manager.get_screen("dashboard")
+                screen.ids.date_field.text = today.strftime("%Y-%m-%d")
+        except Exception:
+            pass 
 
     def create_tables(self):
-        # Exact schema from Windows App
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS payees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         
-        # Expenses Table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                voucher_no INTEGER, 
-                month TEXT, 
-                year INTEGER,
-                company TEXT, 
-                payee TEXT, 
-                category TEXT, 
-                amount REAL,
+                date TEXT, month TEXT, year INTEGER,
+                company TEXT, payee TEXT, category TEXT, amount REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # Wallet Transactions Table
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                type TEXT NOT NULL, 
-                amount REAL NOT NULL, 
-                remark TEXT,
-                expense_id INTEGER, 
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                type TEXT NOT NULL, amount REAL NOT NULL, remark TEXT,
+                expense_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         self.conn.commit()
-    
-    def check_and_migrate_db(self):
-        # Ensure column compatibility
-        try:
-            self.cursor.execute("SELECT company FROM expenses LIMIT 1")
-        except:
-            # Drop old table if schema mismatch (simplest for mobile dev)
-            pass
 
     def get_master_list(self, table):
         try:
@@ -367,11 +358,13 @@ class ExpenseApp(MDApp):
 
     # --- WALLET LOGIC ---
     def update_balance_display(self):
-        self.cursor.execute("SELECT SUM(CASE WHEN type = 'add' THEN amount ELSE -amount END) FROM wallet_transactions")
-        res = self.cursor.fetchone()[0]
-        bal = res if res else 0.0
-        screen = self.root.ids.screen_manager.get_screen("dashboard")
-        screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
+        try:
+            self.cursor.execute("SELECT SUM(CASE WHEN type = 'add' THEN amount ELSE -amount END) FROM wallet_transactions")
+            res = self.cursor.fetchone()[0]
+            bal = res if res else 0.0
+            screen = self.root.ids.screen_manager.get_screen("dashboard")
+            screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
+        except: pass
 
     def show_wallet_dialog(self, trans_type):
         self.trans_type_temp = trans_type
@@ -597,11 +590,13 @@ class ExpenseApp(MDApp):
             icon = "arrow-down-bold" if r[0] == 'expense' or r[0] == 'remove' else "arrow-up-bold"
             color = (1, 0, 0, 1) if r[0] == 'expense' or r[0] == 'remove' else (0, 0.7, 0, 1)
             
+            # Using MDLabel and Layout instead of IconLeftWidget to be safer on older KivyMD
             item = TwoLineAvatarIconListItem(
                 text=f"₹{r[1]:,.2f} ({r[0].upper()})",
                 secondary_text=f"{r[2]} | {r[3]}"
             )
-            # Creating Icon programmatically for plain list
+            
+            # Re-imported here just in case
             from kivymd.uix.list import IconLeftWidget
             ic = IconLeftWidget(icon=icon)
             ic.theme_text_color = "Custom"
