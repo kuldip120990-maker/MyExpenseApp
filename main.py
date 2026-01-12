@@ -10,9 +10,10 @@ from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.snackbar import Snackbar
 from kivymd.uix.label import MDLabel
+from kivymd.uix.card import MDCard
+from kivymd.uix.widget import Widget
 from kivy.lang import Builder
 from kivy.core.window import Window
-# --- FIX 1: Added ObjectProperty import ---
 from kivy.properties import StringProperty, NumericProperty, ObjectProperty
 from kivy.metrics import dp
 from datetime import datetime
@@ -60,9 +61,10 @@ KV = '''
 
             OneLineIconListItem:
                 text: "Manage Companies"
+                # FIX: Passing screen_manager directly to avoid crash
                 on_press:
                     root.nav_drawer.set_state("close")
-                    app.open_master_screen("companies")
+                    app.open_master_screen("companies", root.screen_manager)
                 IconLeftWidget:
                     icon: "domain"
 
@@ -70,7 +72,7 @@ KV = '''
                 text: "Manage Payees"
                 on_press:
                     root.nav_drawer.set_state("close")
-                    app.open_master_screen("payees")
+                    app.open_master_screen("payees", root.screen_manager)
                 IconLeftWidget:
                     icon: "account-cash"
 
@@ -78,7 +80,7 @@ KV = '''
                 text: "Manage Categories"
                 on_press:
                     root.nav_drawer.set_state("close")
-                    app.open_master_screen("categories")
+                    app.open_master_screen("categories", root.screen_manager)
                 IconLeftWidget:
                     icon: "shape"
 
@@ -121,7 +123,7 @@ MDScreen:
                             MDCard:
                                 orientation: "vertical"
                                 padding: dp(15)
-                                spacing: dp(10)
+                                spacing: dp(5)
                                 size_hint_y: None
                                 height: dp(180) 
                                 elevation: 2
@@ -131,6 +133,8 @@ MDScreen:
                                     text: "Wallet Balance"
                                     halign: "center"
                                     theme_text_color: "Secondary"
+                                    size_hint_y: None
+                                    height: dp(30)
                                 
                                 MDLabel:
                                     id: wallet_bal_label
@@ -138,26 +142,31 @@ MDScreen:
                                     halign: "center"
                                     font_style: "H4"
                                     theme_text_color: "Primary"
+                                    size_hint_y: None
+                                    height: dp(40)
 
-                                # --- FIX 2: Added Vertical Space ---
+                                # FIX: Added Vertical Space
                                 Widget:
                                     size_hint_y: None
-                                    height: dp(10)
+                                    height: dp(20)
 
-                                # --- FIX 3: Centered Buttons ---
+                                # FIX: Centered Buttons with spacing
                                 MDBoxLayout:
-                                    spacing: dp(15)
+                                    orientation: 'horizontal'
+                                    spacing: dp(20)
                                     adaptive_size: True
                                     pos_hint: {"center_x": .5}
                                     
                                     MDRaisedButton:
                                         text: "+ Add Funds"
                                         md_bg_color: 0, 0.7, 0, 1
+                                        text_color: 1, 1, 1, 1
                                         on_release: app.show_wallet_dialog("add")
                                         
                                     MDRaisedButton:
                                         text: "- Withdraw"
                                         md_bg_color: 0.8, 0, 0, 1
+                                        text_color: 1, 1, 1, 1
                                         on_release: app.show_wallet_dialog("remove")
 
                             MDLabel:
@@ -279,7 +288,6 @@ MDScreen:
                 screen_manager: screen_manager
 '''
 
-# --- FIX 4: Added ObjectProperty to prevent Sidebar Crash ---
 class ContentNavigationDrawer(MDBoxLayout):
     nav_drawer = ObjectProperty()
     screen_manager = ObjectProperty()
@@ -301,15 +309,15 @@ class ExpenseApp(MDApp):
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
         
-        # --- ERROR CATCHING SETUP ---
         try:
             # Database setup
-            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v5.db')
+            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v6.db')
             self.conn = sqlite3.connect(self.db_name)
             self.cursor = self.conn.cursor()
             self.create_tables()
             
             self.current_master_table = "" 
+            self.sm = None # Placeholder for ScreenManager
 
             return Builder.load_string(KV)
         except Exception as e:
@@ -318,7 +326,11 @@ class ExpenseApp(MDApp):
 
     def on_start(self):
         try:
-            # Default Data if empty
+            # FIX: Securely finding screen_manager
+            if self.root:
+                self.sm = self.root.ids.screen_manager
+                
+            # Default Data
             if not self.get_master_list('categories'):
                 for n in ['Travel', 'Food', 'Office', 'Salary']:
                     self.cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (n,))
@@ -326,8 +338,8 @@ class ExpenseApp(MDApp):
                 
             self.update_balance_display()
             today = datetime.now()
-            if self.root:
-                screen = self.root.ids.screen_manager.get_screen("dashboard")
+            if self.sm:
+                screen = self.sm.get_screen("dashboard")
                 screen.ids.date_field.text = today.strftime("%Y-%m-%d")
         except Exception:
             pass 
@@ -362,7 +374,8 @@ class ExpenseApp(MDApp):
         except: return []
 
     def go_back_home(self):
-        self.root.ids.screen_manager.current = "dashboard"
+        if self.sm:
+            self.sm.current = "dashboard"
 
     # --- WALLET LOGIC ---
     def update_balance_display(self):
@@ -370,8 +383,11 @@ class ExpenseApp(MDApp):
             self.cursor.execute("SELECT SUM(CASE WHEN type = 'add' THEN amount ELSE -amount END) FROM wallet_transactions")
             res = self.cursor.fetchone()[0]
             bal = res if res else 0.0
-            screen = self.root.ids.screen_manager.get_screen("dashboard")
-            screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
+            
+            # FIX: Use stored self.sm to avoid crash
+            if self.sm:
+                screen = self.sm.get_screen("dashboard")
+                screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
         except: pass
 
     def show_wallet_dialog(self, trans_type):
@@ -397,17 +413,27 @@ class ExpenseApp(MDApp):
 
     def process_wallet_trans(self, instance):
         try:
-            amt = float(self.w_amount.text)
+            amt_text = self.w_amount.text
+            if not amt_text:
+                raise ValueError
+                
+            amt = float(amt_text)
             if amt <= 0: raise ValueError
             
+            remark_text = self.w_remark.text if self.w_remark.text else ""
+            
             self.cursor.execute('INSERT INTO wallet_transactions (type, amount, remark) VALUES (?, ?, ?)', 
-                               (self.trans_type_temp, amt, self.w_remark.text))
+                               (self.trans_type_temp, amt, remark_text))
             self.conn.commit()
-            self.update_balance_display()
+            
             self.dialog.dismiss()
+            self.update_balance_display()
             Snackbar(text="Transaction Successful").open()
-        except:
+        except ValueError:
             Snackbar(text="Invalid Amount").open()
+        except Exception as e:
+            # Catch other errors to prevent crash
+            Snackbar(text="Error occurred").open()
 
     # --- DATA ENTRY ---
     def show_date_picker(self):
@@ -416,8 +442,9 @@ class ExpenseApp(MDApp):
         date_dialog.open()
 
     def on_date_save(self, instance, value, date_range):
-        screen = self.root.ids.screen_manager.get_screen("dashboard")
-        screen.ids.date_field.text = str(value)
+        if self.sm:
+            screen = self.sm.get_screen("dashboard")
+            screen.ids.date_field.text = str(value)
 
     def open_menu(self, item, table):
         menu_items = [
@@ -435,7 +462,9 @@ class ExpenseApp(MDApp):
         self.menu.dismiss()
 
     def save_expense(self):
-        screen = self.root.ids.screen_manager.get_screen("dashboard")
+        if not self.sm: return
+        screen = self.sm.get_screen("dashboard")
+        
         date = screen.ids.date_field.text
         company = screen.ids.company_field.text
         payee = screen.ids.payee_field.text
@@ -478,15 +507,16 @@ class ExpenseApp(MDApp):
 
     # --- REPORTS ---
     def load_report_data(self):
-        screen = self.root.ids.screen_manager.get_screen("reports")
+        if not self.sm: return
+        screen = self.sm.get_screen("reports")
         self.cursor.execute("SELECT id, amount, company, payee, category, date FROM expenses ORDER BY id DESC LIMIT 50")
         rows = self.cursor.fetchall()
         
         data = []
         for r in rows:
             data.append({
-                "text": f"₹{r[1]:,.2f} - {r[4]}", # Amount - Category
-                "secondary_text": f"{r[5]} | {r[3]} ({r[2]})", # Date | Payee (Company)
+                "text": f"₹{r[1]:,.2f} - {r[4]}", 
+                "secondary_text": f"{r[5]} | {r[3]} ({r[2]})", 
                 "id_val": r[0]
             })
         
@@ -514,16 +544,25 @@ class ExpenseApp(MDApp):
         Snackbar(text="Deleted").open()
 
     # --- MASTER DATA MANAGEMENT ---
-    def open_master_screen(self, table_name):
+    # FIX: Accepting manager argument to avoid crash
+    def open_master_screen(self, table_name, manager=None):
         self.current_master_table = table_name
-        screen = self.root.ids.screen_manager.get_screen("master_data")
-        screen.ids.master_toolbar.title = f"Manage {table_name.capitalize()}"
-        self.load_master_data()
-        self.root.ids.screen_manager.current = "master_data"
+        
+        # Use passed manager, or fallback to self.sm
+        target_sm = manager if manager else self.sm
+        
+        if target_sm:
+            screen = target_sm.get_screen("master_data")
+            screen.ids.master_toolbar.title = f"Manage {table_name.capitalize()}"
+            self.load_master_data(target_sm)
+            target_sm.current = "master_data"
 
-    def load_master_data(self):
+    def load_master_data(self, manager=None):
+        target_sm = manager if manager else self.sm
+        if not target_sm: return
+        
         items = self.get_master_list(self.current_master_table)
-        screen = self.root.ids.screen_manager.get_screen("master_data")
+        screen = target_sm.get_screen("master_data")
         screen.ids.master_list.data = [{"text": i} for i in items]
 
     def show_add_master_dialog(self):
@@ -588,7 +627,8 @@ class ExpenseApp(MDApp):
 
     # --- WALLET HISTORY LIST ---
     def load_wallet_history(self):
-        screen = self.root.ids.screen_manager.get_screen("wallet_hist")
+        if not self.sm: return
+        screen = self.sm.get_screen("wallet_hist")
         screen.ids.wallet_list.clear_widgets()
         
         self.cursor.execute("SELECT type, amount, remark, created_at FROM wallet_transactions ORDER BY id DESC LIMIT 50")
@@ -598,13 +638,11 @@ class ExpenseApp(MDApp):
             icon = "arrow-down-bold" if r[0] == 'expense' or r[0] == 'remove' else "arrow-up-bold"
             color = (1, 0, 0, 1) if r[0] == 'expense' or r[0] == 'remove' else (0, 0.7, 0, 1)
             
-            # Using MDLabel and Layout instead of IconLeftWidget to be safer on older KivyMD
             item = TwoLineAvatarIconListItem(
                 text=f"₹{r[1]:,.2f} ({r[0].upper()})",
                 secondary_text=f"{r[2]} | {r[3]}"
             )
             
-            # Re-imported here just in case
             from kivymd.uix.list import IconLeftWidget
             ic = IconLeftWidget(icon=icon)
             ic.theme_text_color = "Custom"
