@@ -14,41 +14,42 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.widget import Widget
 from kivy.lang import Builder
 from kivy.core.window import Window
-from kivy.properties import StringProperty, NumericProperty, ObjectProperty
 from kivy.metrics import dp
 from datetime import datetime
 import sqlite3
 import os
 import traceback
 
-# --- KV LAYOUT (UI Design) ---
+# --- KV LAYOUT ---
+# મેં અહીંથી બધું જ જટિલ લોજીક કાઢી નાખ્યું છે.
+# હવે બટન સીધું 'app.change_screen()' ને કોલ કરશે.
 KV = '''
+<DrawerClickableItem@OneLineIconListItem>:
+    theme_text_color: "Custom"
+    text_color: 0, 0, 0, 1
+
 <ContentNavigationDrawer>:
+    orientation: "vertical"
+    padding: "8dp"
+    spacing: "8dp"
+    
     MDScrollView:
         MDList:
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Dashboard"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.switch_screen("dashboard")
+                on_release: app.change_screen("dashboard")
                 IconLeftWidget:
                     icon: "view-dashboard"
 
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Reports"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.load_report_data()
-                    app.switch_screen("reports")
+                on_release: app.change_screen("reports")
                 IconLeftWidget:
                     icon: "file-document"
 
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Wallet History"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.load_wallet_history()
-                    app.switch_screen("wallet_hist")
+                on_release: app.change_screen("wallet_hist")
                 IconLeftWidget:
                     icon: "wallet"
 
@@ -59,27 +60,21 @@ KV = '''
                 height: self.texture_size[1]
                 padding: dp(15), dp(10)
 
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Manage Companies"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.open_master_screen("companies")
+                on_release: app.open_master("companies")
                 IconLeftWidget:
                     icon: "domain"
 
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Manage Payees"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.open_master_screen("payees")
+                on_release: app.open_master("payees")
                 IconLeftWidget:
                     icon: "account-cash"
 
-            OneLineIconListItem:
+            DrawerClickableItem:
                 text: "Manage Categories"
-                on_press:
-                    root.nav_drawer.set_state("close")
-                    app.open_master_screen("categories")
+                on_release: app.open_master("categories")
                 IconLeftWidget:
                     icon: "shape"
 
@@ -88,12 +83,12 @@ KV = '''
         icon: "delete"
         theme_text_color: "Custom"
         text_color: 1, 0, 0, 1
-        on_release: root.delete_item(root)
+        on_release: app.confirm_delete_expense(root.id_val)
 
 <MasterListItem>:
     IconRightWidget:
         icon: "pencil"
-        on_release: root.edit_item(root)
+        on_release: app.show_edit_master_dialog(root.text)
 
 MDScreen:
     MDNavigationLayout:
@@ -144,7 +139,7 @@ MDScreen:
                                     size_hint_y: None
                                     height: dp(40)
 
-                                # Vertical Space
+                                # Vertical Space as requested
                                 Widget:
                                     size_hint_y: None
                                     height: dp(20)
@@ -250,7 +245,7 @@ MDScreen:
                     MDTopAppBar:
                         id: master_toolbar
                         title: "Manage Master"
-                        left_action_items: [["arrow-left", lambda x: app.switch_screen("dashboard")]]
+                        left_action_items: [["arrow-left", lambda x: app.change_screen("dashboard")]]
                     
                     MDRecycleView:
                         id: master_list
@@ -274,7 +269,7 @@ MDScreen:
                     orientation: 'vertical'
                     MDTopAppBar:
                         title: "Wallet History"
-                        left_action_items: [["arrow-left", lambda x: app.switch_screen("dashboard")]]
+                        left_action_items: [["arrow-left", lambda x: app.change_screen("dashboard")]]
                     
                     MDScrollView:
                         MDList:
@@ -283,53 +278,42 @@ MDScreen:
         MDNavigationDrawer:
             id: nav_drawer
             ContentNavigationDrawer:
-                nav_drawer: nav_drawer
 '''
 
-# --- PYTHON LOGIC (Crash Proof) ---
+# --- PYTHON LOGIC ---
 
 class ContentNavigationDrawer(MDBoxLayout):
-    nav_drawer = ObjectProperty()
+    pass
 
 class ExpenseListItem(TwoLineAvatarIconListItem):
     id_val = NumericProperty(0)
-    
-    def delete_item(self, instance):
-        app = MDApp.get_running_app()
-        app.delete_expense_confirm(self.id_val)
 
 class MasterListItem(OneLineIconListItem):
-    def edit_item(self, instance):
-        app = MDApp.get_running_app()
-        app.show_edit_master_dialog(self.text)
+    pass
 
 class ExpenseApp(MDApp):
+    dialog = None # Dialog Object holder
+    wallet_input = None # Wallet Input holder
+
     def build(self):
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.theme_style = "Light"
         
         try:
-            # Database setup - Using a fresh V7 DB to avoid schema conflicts
-            self.db_name = os.path.join(self.user_data_dir, 'expenses_mobile_v7.db')
+            # Database setup
+            self.db_name = os.path.join(self.user_data_dir, 'expenses_final_v8.db')
             self.conn = sqlite3.connect(self.db_name)
             self.cursor = self.conn.cursor()
             self.create_tables()
             
             self.current_master_table = "" 
-            self.sm = None # Persistent ScreenManager reference
-
             return Builder.load_string(KV)
         except Exception as e:
-            error_msg = traceback.format_exc()
-            return MDLabel(text=f"CRASH ERROR:\n{error_msg}", halign="center")
+            return MDLabel(text=f"INIT ERROR: {str(e)}", halign="center")
 
     def on_start(self):
         try:
-            # FIX: Grab ScreenManager safely
-            if self.root:
-                self.sm = self.root.ids.screen_manager
-                
-            # Initialize Default Categories
+            # Default Categories
             if not self.get_master_list('categories'):
                 for n in ['Travel', 'Food', 'Office', 'Salary']:
                     self.cursor.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (n,))
@@ -339,77 +323,54 @@ class ExpenseApp(MDApp):
             
             # Set Date
             today = datetime.now()
-            if self.sm:
-                screen = self.sm.get_screen("dashboard")
-                screen.ids.date_field.text = today.strftime("%Y-%m-%d")
-        except Exception:
-            pass 
+            screen = self.root.ids.screen_manager.get_screen("dashboard")
+            screen.ids.date_field.text = today.strftime("%Y-%m-%d")
+        except:
+            pass
 
     def create_tables(self):
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS payees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)''')
-        
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                date TEXT, month TEXT, year INTEGER,
-                company TEXT, payee TEXT, category TEXT, amount REAL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS wallet_transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                type TEXT NOT NULL, amount REAL NOT NULL, remark TEXT,
-                expense_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, month TEXT, year INTEGER, company TEXT, payee TEXT, category TEXT, amount REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS wallet_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, remark TEXT, expense_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         self.conn.commit()
 
-    # --- NAVIGATION HELPERS (Prevents Sidebar Crashes) ---
-    def switch_screen(self, screen_name):
-        if self.sm:
-            self.sm.current = screen_name
-
-    def open_master_screen(self, table_name):
-        self.current_master_table = table_name
-        if self.sm:
-            screen = self.sm.get_screen("master_data")
-            screen.ids.master_toolbar.title = f"Manage {table_name.capitalize()}"
-            self.load_master_data()
-            self.sm.current = "master_data"
-
-    # --- DB HELPERS ---
-    def get_master_list(self, table):
-        try:
-            self.cursor.execute(f"SELECT name FROM {table}")
-            return [row[0] for row in self.cursor.fetchall()]
-        except: return []
-
-    # --- WALLET LOGIC (Prevents Dialog Crashes) ---
-    def update_balance_display(self):
-        try:
-            self.cursor.execute("SELECT SUM(CASE WHEN type = 'add' THEN amount ELSE -amount END) FROM wallet_transactions")
-            res = self.cursor.fetchone()[0]
-            bal = res if res else 0.0
+    # --- NAVIGATION HUB (This Fixes Sidebar Crashes) ---
+    def change_screen(self, screen_name):
+        # Close Drawer first
+        self.root.ids.nav_drawer.set_state("close")
+        
+        # Then Switch Screen
+        if screen_name == "reports":
+            self.load_report_data()
+        elif screen_name == "wallet_hist":
+            self.load_wallet_history()
             
-            if self.sm:
-                screen = self.sm.get_screen("dashboard")
-                screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
-        except: pass
+        self.root.ids.screen_manager.current = screen_name
 
+    def open_master(self, table_name):
+        self.root.ids.nav_drawer.set_state("close")
+        self.current_master_table = table_name
+        
+        screen = self.root.ids.screen_manager.get_screen("master_data")
+        screen.ids.master_toolbar.title = f"Manage {table_name.capitalize()}"
+        self.load_master_data()
+        
+        self.root.ids.screen_manager.current = "master_data"
+
+    # --- WALLET DIALOG (This Fixes Wallet Crashes) ---
     def show_wallet_dialog(self, trans_type):
         self.trans_type_temp = trans_type
         title = "Add Funds" if trans_type == 'add' else "Withdraw Funds"
         
-        # Create Content
+        # Create text field and store in SELF so it persists
+        self.wallet_input = MDTextField(hint_text="Amount", input_filter="float")
+        self.wallet_remark = MDTextField(hint_text="Remark (Optional)")
+        
         content = MDBoxLayout(orientation="vertical", spacing="12dp", size_hint_y=None, height="100dp")
-        self.w_amount = MDTextField(hint_text="Amount", input_filter="float")
-        self.w_remark = MDTextField(hint_text="Remark (Optional)")
-        content.add_widget(self.w_amount)
-        content.add_widget(self.w_remark)
+        content.add_widget(self.wallet_input)
+        content.add_widget(self.wallet_remark)
         
         self.dialog = MDDialog(
             title=title,
@@ -423,48 +384,59 @@ class ExpenseApp(MDApp):
         self.dialog.open()
 
     def process_wallet_trans(self):
-        # Using local try-except block to prevent app crash
         try:
-            # 1. Get text immediately
-            amt_text = self.w_amount.text
-            remark_text = self.w_remark.text if self.w_remark.text else ""
+            # Safely access the text
+            if not self.wallet_input: return
             
-            # 2. Validate
+            amt_text = self.wallet_input.text
             if not amt_text:
                 Snackbar(text="Please enter amount").open()
                 return
 
             amt = float(amt_text)
             if amt <= 0:
-                Snackbar(text="Amount must be positive").open()
+                Snackbar(text="Amount must be > 0").open()
                 return
             
-            # 3. DB Operation
+            remark = self.wallet_remark.text if self.wallet_remark else ""
+            
             self.cursor.execute('INSERT INTO wallet_transactions (type, amount, remark) VALUES (?, ?, ?)', 
-                               (self.trans_type_temp, amt, remark_text))
+                               (self.trans_type_temp, amt, remark))
             self.conn.commit()
             
-            # 4. Success & Cleanup
             self.dialog.dismiss()
             self.update_balance_display()
-            Snackbar(text="Transaction Successful").open()
+            Snackbar(text="Success!").open()
             
         except ValueError:
-            Snackbar(text="Invalid Amount Format").open()
+            Snackbar(text="Invalid Amount").open()
         except Exception as e:
-            self.dialog.dismiss()
+            if self.dialog: self.dialog.dismiss()
             Snackbar(text=f"Error: {str(e)}").open()
 
-    # --- DATA ENTRY ---
+    def update_balance_display(self):
+        try:
+            self.cursor.execute("SELECT SUM(CASE WHEN type = 'add' THEN amount ELSE -amount END) FROM wallet_transactions")
+            res = self.cursor.fetchone()[0]
+            bal = res if res else 0.0
+            screen = self.root.ids.screen_manager.get_screen("dashboard")
+            screen.ids.wallet_bal_label.text = f"₹{bal:,.2f}"
+        except: pass
+
+    # --- HELPERS ---
+    def get_master_list(self, table):
+        try:
+            self.cursor.execute(f"SELECT name FROM {table}")
+            return [row[0] for row in self.cursor.fetchall()]
+        except: return []
+
     def show_date_picker(self):
         date_dialog = MDDatePicker()
         date_dialog.bind(on_save=self.on_date_save)
         date_dialog.open()
 
     def on_date_save(self, instance, value, date_range):
-        if self.sm:
-            screen = self.sm.get_screen("dashboard")
-            screen.ids.date_field.text = str(value)
+        self.root.ids.screen_manager.get_screen("dashboard").ids.date_field.text = str(value)
 
     def open_menu(self, item, table):
         menu_items = [
@@ -482,9 +454,7 @@ class ExpenseApp(MDApp):
         self.menu.dismiss()
 
     def save_expense(self):
-        if not self.sm: return
-        screen = self.sm.get_screen("dashboard")
-        
+        screen = self.root.ids.screen_manager.get_screen("dashboard")
         date = screen.ids.date_field.text
         company = screen.ids.company_field.text
         payee = screen.ids.payee_field.text
@@ -492,23 +462,18 @@ class ExpenseApp(MDApp):
         amount_str = screen.ids.amount_field.text
 
         if not amount_str or not company or not payee:
-            Snackbar(text="Please fill all fields").open()
+            Snackbar(text="Fill all fields").open()
             return
 
         try:
             amount = float(amount_str)
             dt_obj = datetime.strptime(date, "%Y-%m-%d")
-            month_name = dt_obj.strftime("%B")
-            year_num = dt_obj.year
             
-            # Insert Expense
             self.cursor.execute(
                 "INSERT INTO expenses (date, month, year, company, payee, category, amount) VALUES (?,?,?,?,?,?,?)",
-                (date, month_name, year_num, company, payee, category, amount)
+                (date, dt_obj.strftime("%B"), dt_obj.year, company, payee, category, amount)
             )
             eid = self.cursor.lastrowid
-            
-            # Insert Wallet Transaction
             self.cursor.execute(
                 "INSERT INTO wallet_transactions (type, amount, remark, expense_id) VALUES (?,?,?,?)",
                 ('expense', amount, f"Exp: {category}", eid)
@@ -516,22 +481,18 @@ class ExpenseApp(MDApp):
             self.conn.commit()
             
             self.update_balance_display()
-            Snackbar(text="Saved Successfully").open()
+            Snackbar(text="Saved!").open()
             
-            # Clear fields
             screen.ids.amount_field.text = ""
             screen.ids.payee_field.text = ""
             
         except ValueError:
-            Snackbar(text="Invalid Data format").open()
+            Snackbar(text="Invalid Data").open()
 
-    # --- REPORTS ---
     def load_report_data(self):
-        if not self.sm: return
-        screen = self.sm.get_screen("reports")
+        screen = self.root.ids.screen_manager.get_screen("reports")
         self.cursor.execute("SELECT id, amount, company, payee, category, date FROM expenses ORDER BY id DESC LIMIT 50")
         rows = self.cursor.fetchall()
-        
         data = []
         for r in rows:
             data.append({
@@ -539,57 +500,45 @@ class ExpenseApp(MDApp):
                 "secondary_text": f"{r[5]} | {r[3]} ({r[2]})", 
                 "id_val": r[0]
             })
-        
         screen.ids.report_list.data = data
 
-    def delete_expense_confirm(self, eid):
+    def confirm_delete_expense(self, eid):
         self.del_eid = eid
         self.dialog = MDDialog(
-            title="Delete Expense?",
-            text="This will also refund the amount to wallet.",
+            title="Delete?", text="Amount will be refunded.",
             buttons=[
-                MDFlatButton(text="CANCEL", on_release=lambda x: self.dialog.dismiss()),
-                MDRaisedButton(text="DELETE", md_bg_color=(1,0,0,1), on_release=lambda x: self.perform_delete())
+                MDFlatButton(text="NO", on_release=lambda x: self.dialog.dismiss()),
+                MDRaisedButton(text="YES", md_bg_color=(1,0,0,1), on_release=lambda x: self.perform_delete())
             ]
         )
         self.dialog.open()
 
     def perform_delete(self):
-        try:
-            self.cursor.execute("DELETE FROM expenses WHERE id=?", (self.del_eid,))
-            self.cursor.execute("DELETE FROM wallet_transactions WHERE expense_id=?", (self.del_eid,))
-            self.conn.commit()
-            self.dialog.dismiss()
-            self.load_report_data()
-            self.update_balance_display()
-            Snackbar(text="Deleted").open()
-        except:
-            self.dialog.dismiss()
-            Snackbar(text="Error Deleting").open()
+        self.cursor.execute("DELETE FROM expenses WHERE id=?", (self.del_eid,))
+        self.cursor.execute("DELETE FROM wallet_transactions WHERE expense_id=?", (self.del_eid,))
+        self.conn.commit()
+        self.dialog.dismiss()
+        self.load_report_data()
+        self.update_balance_display()
+        Snackbar(text="Deleted").open()
 
-    # --- MASTER DATA MANAGEMENT ---
+    # --- MASTER DATA ---
     def load_master_data(self):
-        if not self.sm: return
         items = self.get_master_list(self.current_master_table)
-        screen = self.sm.get_screen("master_data")
+        screen = self.root.ids.screen_manager.get_screen("master_data")
         screen.ids.master_list.data = [{"text": i} for i in items]
 
     def show_add_master_dialog(self):
-        content = MDBoxLayout(orientation="vertical", size_hint_y=None, height="50dp")
-        self.master_input = MDTextField(hint_text="Enter Name")
-        content.add_widget(self.master_input)
-        
+        self.master_input = MDTextField(hint_text="Name")
         self.dialog = MDDialog(
-            title=f"Add to {self.current_master_table}",
+            title=f"Add {self.current_master_table}",
             type="custom",
-            content_cls=content,
-            buttons=[
-                MDRaisedButton(text="SAVE", on_release=lambda x: self.save_master_data())
-            ]
+            content_cls=self.master_input,
+            buttons=[MDRaisedButton(text="SAVE", on_release=lambda x: self.save_master())]
         )
         self.dialog.open()
 
-    def save_master_data(self):
+    def save_master(self):
         name = self.master_input.text.strip()
         if name:
             try:
@@ -597,71 +546,37 @@ class ExpenseApp(MDApp):
                 self.conn.commit()
                 self.load_master_data()
                 self.dialog.dismiss()
-            except:
-                Snackbar(text="Already Exists").open()
+            except: Snackbar(text="Exists").open()
 
     def show_edit_master_dialog(self, old_name):
         self.old_master_name = old_name
-        content = MDBoxLayout(orientation="vertical", size_hint_y=None, height="100dp", spacing="10dp")
         self.master_edit_input = MDTextField(text=old_name)
-        content.add_widget(self.master_edit_input)
-        
         self.dialog = MDDialog(
-            title=f"Edit/Delete {old_name}",
+            title=f"Edit {old_name}",
             type="custom",
-            content_cls=content,
+            content_cls=self.master_edit_input,
             buttons=[
-                MDFlatButton(text="DELETE", text_color=(1,0,0,1), on_release=lambda x: self.delete_master_data()),
-                MDRaisedButton(text="UPDATE", on_release=lambda x: self.update_master_data())
+                MDFlatButton(text="DELETE", text_color=(1,0,0,1), on_release=lambda x: self.delete_master()),
+                MDRaisedButton(text="UPDATE", on_release=lambda x: self.update_master())
             ]
         )
         self.dialog.open()
 
-    def update_master_data(self):
-        new_name = self.master_edit_input.text.strip()
-        if new_name:
+    def update_master(self):
+        new = self.master_edit_input.text.strip()
+        if new:
             try:
-                self.cursor.execute(f"UPDATE {self.current_master_table} SET name=? WHERE name=?", (new_name, self.old_master_name))
+                self.cursor.execute(f"UPDATE {self.current_master_table} SET name=? WHERE name=?", (new, self.old_master_name))
                 self.conn.commit()
                 self.load_master_data()
                 self.dialog.dismiss()
-            except:
-                Snackbar(text="Error or Exists").open()
+            except: pass
 
-    def delete_master_data(self):
-        try:
-            self.cursor.execute(f"DELETE FROM {self.current_master_table} WHERE name=?", (self.old_master_name,))
-            self.conn.commit()
-            self.load_master_data()
-            self.dialog.dismiss()
-        except:
-             self.dialog.dismiss()
-
-    # --- WALLET HISTORY LIST ---
-    def load_wallet_history(self):
-        if not self.sm: return
-        screen = self.sm.get_screen("wallet_hist")
-        screen.ids.wallet_list.clear_widgets()
-        
-        self.cursor.execute("SELECT type, amount, remark, created_at FROM wallet_transactions ORDER BY id DESC LIMIT 50")
-        rows = self.cursor.fetchall()
-        
-        for r in rows:
-            icon = "arrow-down-bold" if r[0] == 'expense' or r[0] == 'remove' else "arrow-up-bold"
-            color = (1, 0, 0, 1) if r[0] == 'expense' or r[0] == 'remove' else (0, 0.7, 0, 1)
-            
-            item = TwoLineAvatarIconListItem(
-                text=f"₹{r[1]:,.2f} ({r[0].upper()})",
-                secondary_text=f"{r[2]} | {r[3]}"
-            )
-            
-            from kivymd.uix.list import IconLeftWidget
-            ic = IconLeftWidget(icon=icon)
-            ic.theme_text_color = "Custom"
-            ic.text_color = color
-            item.add_widget(ic)
-            
-            screen.ids.wallet_list.add_widget(item)
+    def delete_master(self):
+        self.cursor.execute(f"DELETE FROM {self.current_master_table} WHERE name=?", (self.old_master_name,))
+        self.conn.commit()
+        self.load_master_data()
+        self.dialog.dismiss()
 
 if __name__ == "__main__":
     ExpenseApp().run()
